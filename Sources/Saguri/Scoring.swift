@@ -27,7 +27,9 @@ enum Score {
 
     /// 直前の文字の種類 `prev` と、一致した文字の種類 `curr` から、ボーナスを決める。
     static func bonus(prev: CharClass, curr: CharClass) -> Int {
-        if curr.isWord {
+        // 空白以外（記号や区切りも含む）が境界のあとに来たら、境界のボーナス（fzf の bonusFor の class >= charNonWord）。
+        // パターンに - や / を入れたときも、空白のあとの記号を単語の先頭とみなす
+        if curr >= .nonWord {
             switch prev {
             case .white: return boundaryWhite
             case .delimiter: return boundaryDelimiter

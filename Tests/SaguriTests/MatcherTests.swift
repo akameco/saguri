@@ -1,3 +1,4 @@
+import Foundation
 import Testing
 
 @testable import Saguri
@@ -59,7 +60,7 @@ struct MatcherTests {
         #expect(picked == ["の", "P"])
     }
 
-    /// v1 の弱点を記録しておく。v2 にしたら positions が [4, 5]、score が 62 になるはず。
+    /// v1 の弱点を記録しておく。v2 では [4, 5] / 62 になる（MatcherV2Tests の 最善の一致を選ぶ）
     @Test func v1は最善の一致を見逃すことがある() throws {
         let m = try #require(Matcher("ab", options: Options(algorithm: .v1)).match("a_b ab"))
         #expect(m.positions == [0, 2])
@@ -113,6 +114,28 @@ struct MatcherV2Tests {
         #expect(m.positions == [0, 3])
     }
 
+    @Test func 三文字以上でも連続と境界を選ぶ() throws {
+        // a_b_c: どれも _ のあとの境界
+        #expect(try #require(Matcher("abc").match("a_b_c")).positions == [0, 2, 4])
+        // fooBar: f と B（camelCase の境界）
+        #expect(try #require(Matcher("fb").match("fooBar")).positions == [0, 3])
+        // "xabc abc": 後ろの、空白のあとで連続した abc
+        #expect(try #require(Matcher("abc").match("xabc abc")).positions == [5, 6, 7])
+    }
+
+    @Test func 大文字のパターンは大文字だけに当たる() throws {
+        // smart case: B が大文字なので、小文字の b には当たらない
+        #expect(try #require(Matcher("aB").match("ab aB")).positions == [3, 4])
+        #expect(Matcher("aB").match("ab ab") == nil)
+    }
+
+    @Test func 表が大きすぎるときはv1で答える() throws {
+        // 6 万文字 × 2 行は 10 万マスを超えるので、v1 の走査と採点に戻る
+        let long = String(repeating: "a", count: 60000) + "b"
+        let m = try #require(Matcher("ab").match(long))
+        #expect(m.positions == [59999, 60000])
+    }
+
     /// 乱数で作った文字列で、v2 の性質を確かめる（プロパティテスト）。
     /// - v2 の点は、ほとんどの場合 v1 以上。ただし必ずではない。連続のボーナスは「どこから連続しているか」
     ///   で決まり、表の 1 マスに 1 つの経路しか覚えないので、fzf の v2 も最適を保証しない（下の割合で確かめる）
@@ -159,5 +182,54 @@ struct SplitMix64: RandomNumberGenerator {
         z = (z ^ (z >> 30)) &* 0xBF58_476D_1CE4_E5B9
         z = (z ^ (z >> 27)) &* 0x94D0_49BB_1331_11EB
         return z ^ (z >> 31)
+    }
+}
+
+/// fzf が入っていれば、fzf と同じ並び順になるかを確かめる。
+/// fzf は点数を出さないので、`fzf -f <パターン> --tiebreak=index` の出力順（点数の高い順、同点は入力の順）と比べる。
+struct FzfCompareTests {
+    static let fzf: String? = ["/opt/homebrew/bin/fzf", "/usr/local/bin/fzf", "/usr/bin/fzf"]
+        .first { FileManager.default.isExecutableFile(atPath: $0) }
+
+    /// `.enabled(if:)` で、条件を満たさないときはテストを飛ばす（fzf が無い CI でも落ちない）
+    @Test(.enabled(if: fzf != nil)) func fzfと同じ並び順になる() throws {
+        var rng = SplitMix64(seed: 2026)
+        // パターンに記号（- / _ .）も入れる。^ ' ! $ と空白は fzf の検索構文になるので入れない
+        let textAlphabet = Array("abAB_-/ .1")
+        let patternAlphabet = Array("abAB_-/.")
+        var mismatches: [String] = []
+        for _ in 0..<150 {
+            let candidates = (0..<40).map { _ in
+                String((0..<Int.random(in: 1...14, using: &rng)).map { _ in textAlphabet.randomElement(using: &rng)! })
+            }
+            let pattern = String((0..<Int.random(in: 1...4, using: &rng)).map { _ in patternAlphabet.randomElement(using: &rng)! })
+            let matcher = Matcher(pattern)
+            // 自分の並び: 点数の高い順、同点は入力の順
+            let mine = candidates.enumerated()
+                .compactMap { i, c in matcher.match(c).map { (i, $0.score) } }
+                .sorted { $0.1 != $1.1 ? $0.1 > $1.1 : $0.0 < $1.0 }
+                .map(\.0)
+            let theirs = try runFzf(pattern: pattern, candidates: candidates)
+            if mine != theirs { mismatches.append("\(pattern): \(mine) / fzf \(theirs)") }
+        }
+        #expect(mismatches.isEmpty, "\(mismatches.prefix(3))")
+    }
+
+    /// fzf に候補を渡し、出力された行が何番目の候補かを返す（重複しないよう、行の頭に番号を付けて渡す）
+    func runFzf(pattern: String, candidates: [String]) throws -> [Int] {
+        let p = Process()
+        p.executableURL = URL(fileURLWithPath: Self.fzf!)
+        // --nth=2.. と --delimiter で、番号の列を検索の対象から外す
+        p.arguments = ["-f", pattern, "--tiebreak=index", "--algo=v2", "--delimiter=\t", "--nth=2.."]
+        let input = Pipe(), output = Pipe()
+        p.standardInput = input
+        p.standardOutput = output
+        try p.run()
+        let lines = candidates.enumerated().map { "\($0)\t\($1)" }.joined(separator: "\n") + "\n"
+        input.fileHandleForWriting.write(Data(lines.utf8))
+        try input.fileHandleForWriting.close()
+        let data = output.fileHandleForReading.readDataToEndOfFile()
+        p.waitUntilExit()
+        return String(decoding: data, as: UTF8.self).split(separator: "\n").compactMap { Int($0.split(separator: "\t").first ?? "") }
     }
 }

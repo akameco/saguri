@@ -2,8 +2,7 @@
 ///
 /// Swift の `enum` は TypeScript の文字列リテラルの union や Rust の enum に近い。
 /// `Int` を raw value に持たせ、`Comparable` にすると `<` で比べられる。
-/// 並び順に意味を持たせていて、`nonWord` より後ろは「単語を作る文字」になる
-/// （fzf の charClass と同じ考え方）。
+/// 並び順は fzf の charClass と同じ（境界のボーナスは `>= .nonWord`、つまり空白以外で付く）。
 enum CharClass: Int, Comparable {
     case white       // 空白
     case nonWord     // 記号（区切り以外）
@@ -16,9 +15,6 @@ enum CharClass: Int, Comparable {
     static func < (lhs: CharClass, rhs: CharClass) -> Bool {
         lhs.rawValue < rhs.rawValue
     }
-
-    /// 単語を作る文字か。
-    var isWord: Bool { self > .delimiter }
 
     /// `Character` は Swift の「書記素クラスタ」（見た目の 1 文字）。
     /// 絵文字や結合文字も 1 つの `Character` になる。種類は先頭の Unicode スカラーで決める。

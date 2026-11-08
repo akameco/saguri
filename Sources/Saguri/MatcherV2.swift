@@ -60,7 +60,7 @@ extension Matcher {
                 if m == 1, score > maxScore {
                     maxScore = score
                     maxPos = j
-                    // 境界でのボーナス以上は、これより右で上回れない（境界ボーナスが最大の部類なので打ち切る）
+                    // 境界のボーナスが付いたら、そこで打ち切る（fzf と同じ近似。空白のあとの 10 が右にあっても、_ のあとの 8 で止まることがある）
                     if bonus[j] >= Score.boundary { break }
                 }
                 inGap = false
@@ -166,7 +166,8 @@ extension Matcher {
                 if i == 0 { break }
                 i -= 1
             }
-            // 連続の途中なら、次も一致を選ぶ
+            // 連続の途中なら、次も一致を選ぶ（fzf の j < lastIdx などの条件は省いている。
+            // 次の行の左端より左の c は書かれず 0 のままで、i < m - 1 の行で j == lastIdx にはならないため）
             preferMatch = c[row + col] > 1 || (row + width + col + 1 < c.count && c[row + width + col + 1] > 0)
             j -= 1
         }
