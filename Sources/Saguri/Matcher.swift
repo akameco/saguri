@@ -32,14 +32,24 @@ public struct Options: Sendable {
         case insensitive
     }
 
+    /// 採点のやり方
+    public enum Algorithm: Sendable {
+        /// 前から見つけた一致を採点する。速いが、最善の一致を見逃すことがある（fzf の --algo=v1）
+        case v1
+        /// 動的計画法で最善の一致を探す（fzf の既定、--algo=v2）
+        case v2
+    }
+
     public var caseMode: CaseMode
     /// true ならカタカナとひらがなを同じ文字とみなす
     public var kanaInsensitive: Bool
+    public var algorithm: Algorithm
 
     /// 引数の既定値を書いておくと、`Options()` とも `Options(kanaInsensitive: false)` とも呼べる。
-    public init(caseMode: CaseMode = .smart, kanaInsensitive: Bool = true) {
+    public init(caseMode: CaseMode = .smart, kanaInsensitive: Bool = true, algorithm: Algorithm = .v2) {
         self.caseMode = caseMode
         self.kanaInsensitive = kanaInsensitive
+        self.algorithm = algorithm
     }
 }
 
@@ -56,8 +66,10 @@ public struct Matcher: Sendable {
     public let pattern: String
     public let options: Options
 
-    private let chars: [Character]
-    private let caseSensitive: Bool
+    // MatcherV2.swift（別のファイルの extension）から読むので private にしない。
+    // Swift の private はファイルの中だけで見える（TypeScript の private はクラスの中だけ）
+    let chars: [Character]
+    let caseSensitive: Bool
 
     public init(_ pattern: String, options: Options = Options()) {
         self.pattern = pattern
@@ -84,7 +96,12 @@ public struct Matcher: Sendable {
         let text = original.map {
             normalize($0, caseSensitive: caseSensitive, kanaInsensitive: options.kanaInsensitive)
         }
+        // まず v1 の走査（O(n)）で、一致するかだけを安く確かめる。一致しない候補がほとんどなので、ここで多くを落とせる
         guard let (start, end) = findRange(in: text) else { return nil }
+        if options.algorithm == .v2, let best = matchV2(text: text, original: original) {
+            return best
+        }
+        // v1 か、v2 の表が大きすぎるとき
         return score(text: text, original: original, start: start, end: end)
     }
 
