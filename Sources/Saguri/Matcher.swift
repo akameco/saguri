@@ -97,12 +97,29 @@ public struct Matcher: Sendable {
             normalize($0, caseSensitive: caseSensitive, kanaInsensitive: options.kanaInsensitive)
         }
         // まず v1 の走査（O(n)）で、一致するかだけを安く確かめる。一致しない候補がほとんどなので、ここで多くを落とせる
-        guard let (start, end) = findRange(in: text) else { return nil }
-        if options.algorithm == .v2, let best = matchV2(text: text, original: original) {
+        guard let range = findRange(in: text) else { return nil }
+        return score(text: text, classes: original.map(CharClass.init), range: range)
+    }
+
+    /// 前もって分けておいた候補を採点する。`match(prepared.text)` と同じ結果を、文字への分解と正規化を省いて返す。
+    ///
+    /// 同じ候補を何度も採点する（打つたびに数千の候補を見直す）ときに使う。
+    public func match(_ prepared: Prepared) -> Match? {
+        if chars.isEmpty { return Match(score: 0, positions: []) }
+        // かなの扱いが違う形で分けてあれば、文字列から採点し直す
+        guard prepared.kanaInsensitive == options.kanaInsensitive else { return match(prepared.text) }
+        let text = caseSensitive ? prepared.exact : prepared.folded
+        guard let range = findRange(in: text) else { return nil }
+        return score(text: text, classes: prepared.classes, range: range)
+    }
+
+    /// 範囲が見つかった候補を、設定の方法で採点する
+    private func score(text: [Character], classes: [CharClass], range: (Int, Int)) -> Match {
+        if options.algorithm == .v2, let best = matchV2(text: text, classes: classes) {
             return best
         }
         // v1 か、v2 の表が大きすぎるとき
-        return score(text: text, original: original, start: start, end: end)
+        return score(text: text, classes: classes, start: range.0, end: range.1)
     }
 
     /// fzf の FuzzyMatchV1 の前半。一致する範囲 `start..<end` を探す。
@@ -143,8 +160,8 @@ public struct Matcher: Sendable {
 
     /// fzf の calculateScore。範囲の中を左から見て、一致・すき間・ボーナスを足し合わせる。
     ///
-    /// 種類（CharClass）は正規化前の `original` で見る。小文字にすると camelCase の境界が消えるため。
-    private func score(text: [Character], original: [Character], start: Int, end: Int) -> Match {
+    /// 種類（`classes`、CharClass）は正規化前の文字で決めたものを使う。小文字にすると camelCase の境界が消えるため。
+    private func score(text: [Character], classes: [CharClass], start: Int, end: Int) -> Match {
         var pidx = 0
         var total = 0
         var inGap = false
@@ -153,10 +170,10 @@ public struct Matcher: Sendable {
         var positions: [Int] = []
         positions.reserveCapacity(chars.count)
 
-        var prevClass: CharClass = start > 0 ? CharClass(original[start - 1]) : .white
+        var prevClass: CharClass = start > 0 ? classes[start - 1] : .white
 
         for i in start..<end {
-            let currClass = CharClass(original[i])
+            let currClass = classes[i]
             if pidx < chars.count, text[i] == chars[pidx] {
                 positions.append(i)
                 total += Score.match

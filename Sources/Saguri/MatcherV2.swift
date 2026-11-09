@@ -12,7 +12,8 @@ extension Matcher {
     /// 表が大きくなりすぎるときは v1 に戻す（fzf も同じ。メモリを守るため）
     static let v2CellLimit = 100_000
 
-    func matchV2(text: [Character], original: [Character]) -> Match? {
+    /// `classes` は候補の各文字の種類（正規化前の文字で決めたもの）
+    func matchV2(text: [Character], classes: [CharClass]) -> Match? {
         let m = chars.count
         let n = text.count
         guard n >= m else { return nil }
@@ -37,7 +38,7 @@ extension Matcher {
         var maxPos = 0
 
         for j in 0..<n {
-            let cls = CharClass(original[j])
+            let cls = classes[j]
             bonus[j] = Score.bonus(prev: prevClass, curr: cls)
             prevClass = cls
 

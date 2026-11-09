@@ -21,6 +21,17 @@ if let m = matcher.match("GitHub Desktop") {
 | `kanaInsensitive` | `true` | カタカナとひらがなを同じ文字とみなす |
 | `algorithm` | `.v2` | `.v2` は動的計画法で最善の一致を探す（fzf の既定）。`.v1` は前から見つけた一致を採点する（速いが、見逃すことがある） |
 
+### 同じ候補を何度も採点するとき（`Prepared`）
+
+`match(_: String)` は呼ぶたびに、候補を文字（`Character`）に分け、大文字小文字とかなをそろえ、文字の種類を調べます。ランチャーのように打つたびに同じ数千の候補を採点するなら、この下ごしらえを候補ごとに 1 回だけ行う `Prepared` を渡します。結果は `match(_: String)` と同じです。
+
+```swift
+let prepared = titles.map { Prepared($0) }   // 候補が変わったときだけ作る
+let hits = prepared.compactMap { Matcher("ghd").match($0) }
+```
+
+taguri の絵文字の一覧（1911 件、平均 21 文字）を 1 文字で絞り込む時間は、2.0ms から 0.76ms になりました（4 コアで並行に採点したとき）。そのかわり、1 文字あたり 33 バイトほどのメモリを使います。
+
 ## v1: 範囲を探してから採点する
 
 fzf の `FuzzyMatchV1` と同じ 2 段階です。

@@ -233,3 +233,30 @@ struct FzfCompareTests {
         return String(decoding: data, as: UTF8.self).split(separator: "\n").compactMap { Int($0.split(separator: "\t").first ?? "") }
     }
 }
+
+struct PreparedTests {
+    static let candidates = [
+        "GitHub Desktop", "github.com/akameco/saguri", "a_b ab", "fooBar_baz", "カタカナ ひらがな", "Ｆｕｌｌ ｗｉｄｔｈ",
+        "Safari Technology Preview", "😀 grinning face", "Straße", "src/algo/algo.go", "", "x",
+        String(repeating: "ab", count: 600),
+    ]
+    static let patterns = ["", "g", "ghd", "GH", "ab", "fb", "かた", "カナ", "sfr", "STP", "😀", "ß", "algo", "xyz"]
+
+    @Test(arguments: [Options(), Options(caseMode: .sensitive), Options(caseMode: .insensitive),
+                      Options(kanaInsensitive: false), Options(algorithm: .v1)])
+    func 前もって分けても文字列で採点したのと同じ(options: Options) {
+        let prepared = Self.candidates.map { Prepared($0) }
+        for pattern in Self.patterns {
+            let m = Matcher(pattern, options: options)
+            for (text, p) in zip(Self.candidates, prepared) {
+                #expect(m.match(p) == m.match(text), "\(pattern) / \(text)")
+            }
+        }
+    }
+
+    @Test func かなの扱いが違えば文字列から採点し直す() {
+        let p = Prepared("カタカナ", kanaInsensitive: false)
+        #expect(Matcher("かた").match(p) != nil)
+        #expect(Matcher("かた", options: Options(kanaInsensitive: false)).match(p) == nil)
+    }
+}
